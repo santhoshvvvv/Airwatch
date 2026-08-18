@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AirWatch — PMS7003 Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#12151a;
+    --panel:#1b2027;
+    --panel-2:#20262e;
+    --line:#2a3038;
+    --text:#e7ebef;
+    --muted:#7c8792;
+    --accent:#5eead4;
+    --accent-dim:#2f4b47;
+    --good:#4ade80;
+    --moderate:#fbbf24;
+    --sensitive:#fb923c;
+    --unhealthy:#f87171;
+    --very-unhealthy:#c084fc;
+    --hazardous:#e879a5;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(1200px 600px at 15% -10%, rgba(94,234,212,0.06), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    padding:28px 20px 60px;
+  }
+  .wrap{max-width:1040px;margin:0 auto;}
+
+  header{
+    display:flex;justify-content:space-between;align-items:flex-start;
+    flex-wrap:wrap;gap:16px;
+    margin-bottom:26px;
+    padding-bottom:20px;
+    border-bottom:1px solid var(--line);
+  }
+  .brand{display:flex;flex-direction:column;gap:4px;}
+  .brand .eyebrow{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;letter-spacing:0.18em;color:var(--accent);
+    text-transform:uppercase;
+  }
+  .brand h1{margin:0;font-size:26px;font-weight:700;letter-spacing:-0.01em;}
+  .brand .sub{color:var(--muted);font-size:13px;}
+
+  .status-pill{
+    display:flex;align-items:center;gap:8px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;color:var(--muted);
+    padding:7px 12px;border:1px solid var(--line);border-radius:20px;
+    background:var(--panel);
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);transition:background .3s;}
+  .dot.live{background:var(--good);box-shadow:0 0 8px var(--good);animation:pulse 1.6s infinite;}
+  .dot.err{background:var(--unhealthy);}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+
+  button{
+    font-family:'Inter',sans-serif;font-weight:600;font-size:13.5px;
+    padding:10px 18px;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel);color:var(--text);cursor:pointer;
+    transition:border-color .15s, background .15s;
+  }
+  button:hover{border-color:var(--accent);}
+  .range-toggle button{padding:6px 12px;font-size:12.5px;border:none;background:transparent;border-radius:6px;}
+  .range-toggle button.active{background:var(--accent-dim);color:var(--accent);}
+
+  .notice{
+    font-size:12.5px;color:var(--muted);line-height:1.6;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:12px 14px;margin-bottom:22px;
+  }
+  .notice b{color:var(--text);}
+  .notice.warn{border-color:var(--sensitive);color:#f0c39a;}
+
+  .readouts{display:grid;grid-template-columns:1.2fr 1.2fr 0.8fr;gap:14px;margin-bottom:16px;}
+  @media(max-width:720px){.readouts{grid-template-columns:1fr;}}
+
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:18px 20px;position:relative;overflow:hidden;
+  }
+  .card .label{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;}
+  .card .value-row{display:flex;align-items:baseline;gap:8px;}
+  .card .value{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:46px;line-height:1;font-variant-numeric:tabular-nums;}
+  .card .unit{color:var(--muted);font-size:13px;}
+  .card .aqi-tag{display:inline-block;margin-top:10px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:6px;font-family:'Inter',sans-serif;}
+  .card.small .value{font-size:30px;}
+  .card .age{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);margin-top:8px;}
+
+  .trace-wrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px 10px;margin-bottom:26px;}
+  .trace-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+  .trace-head .label{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;}
+  .trace-legend{display:flex;gap:14px;font-size:11.5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;}
+  .trace-legend span{display:flex;align-items:center;gap:5px;}
+  .swatch{width:9px;height:9px;border-radius:2px;}
+  canvas#trace{width:100%;height:140px;display:block;}
+
+  .hist-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+  .hist-head h2{font-size:16px;margin:0;font-weight:700;}
+  .range-toggle{display:flex;gap:6px;background:var(--panel);border:1px solid var(--line);padding:4px;border-radius:9px;}
+
+  .hist-panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:18px;}
+  canvas#histChart{width:100%;height:220px;display:block;}
+  .hist-empty{color:var(--muted);font-size:13px;text-align:center;padding:50px 0;}
+
+  .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:26px;}
+  @media(max-width:640px){.stats-row{grid-template-columns:repeat(2,1fr);}}
+  .stat{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;}
+  .stat .k{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;}
+  .stat .v{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;margin-top:4px;}
+
+  footer{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:12px;}
+  footer button{font-size:12px;padding:7px 12px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <span class="eyebrow">Particulate Monitor</span>
+      <h1>AirWatch</h1>
+      <span class="sub">PMS7003 · ESP32 · WiFi</span>
+    </div>
+    <div class="status-pill"><span class="dot" id="statusDot"></span><span id="statusText">Connecting to Firebase…</span></div>
+  </header>
+
+  <div class="notice warn" id="configNotice" style="display:none">
+    <b>Setup needed:</b> open this file and fill in the <code>firebaseConfig</code> object near the top of the
+    <code>&lt;script&gt;</code> section with your Firebase project's config (Project settings → your web app),
+    matching the same project the ESP32 firmware is pointed at.
+  </div>
+
+  <div class="readouts">
+    <div class="card" id="pm25Card">
+      <div class="label">PM2.5</div>
+      <div class="value-row"><span class="value" id="pm25Val">—</span><span class="unit">µg/m³</span></div>
+      <span class="aqi-tag" id="pm25Tag">No data</span>
+      <div class="age" id="ageText"></div>
+    </div>
+    <div class="card" id="pm10Card">
+      <div class="label">PM10</div>
+      <div class="value-row"><span class="value" id="pm10Val">—</span><span class="unit">µg/m³</span></div>
+      <span class="aqi-tag" id="pm10Tag">No data</span>
+    </div>
+    <div class="card small">
+      <div class="label">PM1.0</div>
+      <div class="value-row"><span class="value" id="pm1Val">—</span><span class="unit">µg/m³</span></div>
+      <span class="aqi-tag" style="background:var(--panel-2);color:var(--muted);">Reference</span>
+    </div>
+  </div>
+
+  <div class="trace-wrap">
+    <div class="trace-head">
+      <span class="label">Recent readings</span>
+      <div class="trace-legend">
+        <span><span class="swatch" style="background:var(--accent)"></span>PM2.5</span>
+        <span><span class="swatch" style="background:#5b7fff"></span>PM10</span>
+      </div>
+    </div>
+    <canvas id="trace"></canvas>
+  </div>
+
+  <div class="hist-head">
+    <h2>History &amp; trends</h2>
+    <div class="range-toggle" id="rangeToggle">
+      <button data-range="1" class="active">Today</button>
+      <button data-range="7">7 days</button>
+      <button data-range="30">30 days</button>
+      <button data-range="0">All</button>
+    </div>
+  </div>
+
+  <div class="hist-panel">
+    <canvas id="histChart"></canvas>
+    <div class="hist-empty" id="histEmpty">No logged readings yet for this range.</div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat"><div class="k">Avg PM2.5</div><div class="v" id="statAvg25">—</div></div>
+    <div class="stat"><div class="k">Max PM2.5</div><div class="v" id="statMax25">—</div></div>
+    <div class="stat"><div class="k">Avg PM10</div><div class="v" id="statAvg10">—</div></div>
+    <div class="stat"><div class="k">Max PM10</div><div class="v" id="statMax10">—</div></div>
+  </div>
+
+  <footer>
+    <span id="logCount">0 points logged</span>
+    <button id="exportBtn">Export CSV</button>
+  </footer>
+
+</div>
+
+<!-- Firebase (compat build - simplest to use with no build step, works fine on GitHub Pages) -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
+
+<script>
+(function(){
+  "use strict";
+
+  // ================= FILL THIS IN =================
+  // Firebase console -> Project settings -> General -> Your apps -> Web app -> SDK config
+  const firebaseConfig = {
+    apiKey: "AIzaSyAy9JEuHFF7oABxinWdICybMMl2WR8TT40",
+    authDomain: "airwatch-626b4.firebaseapp.com",
+    databaseURL: "https://airwatch-626b4-default-rtdb.firebaseio.com",
+    projectId: "airwatch-626b4",
+    storageBucket: "airwatch-626b4.firebasestorage.app",
+    messagingSenderId: "825750513771",
+    appId: "1:825750513771:web:3c602814f02b3e337da92e"
+  };
+  // ==================================================
+
+  const isConfigured = !Object.values(firebaseConfig).some(v => String(v).startsWith('YOUR_'));
+  if(!isConfigured){
+    document.getElementById('configNotice').style.display = 'block';
+  }
+
+  // ---------------- AQI helpers ----------------
+  const PM25_BREAKS = [
+    {max:12,   label:"Good",             color:"var(--good)"},
+    {max:35.4, label:"Moderate",         color:"var(--moderate)"},
+    {max:55.4, label:"Unhealthy (SG)",   color:"var(--sensitive)"},
+    {max:150.4,label:"Unhealthy",        color:"var(--unhealthy)"},
+    {max:250.4,label:"Very Unhealthy",   color:"var(--very-unhealthy)"},
+    {max:Infinity,label:"Hazardous",     color:"var(--hazardous)"}
+  ];
+  const PM10_BREAKS = [
+    {max:54,  label:"Good",             color:"var(--good)"},
+    {max:154, label:"Moderate",         color:"var(--moderate)"},
+    {max:254, label:"Unhealthy (SG)",   color:"var(--sensitive)"},
+    {max:354, label:"Unhealthy",        color:"var(--unhealthy)"},
+    {max:424, label:"Very Unhealthy",   color:"var(--very-unhealthy)"},
+    {max:Infinity,label:"Hazardous",    color:"var(--hazardous)"}
+  ];
+  function classify(val, breaks){ for(const b of breaks){ if(val <= b.max) return b; } return breaks[breaks.length-1]; }
+  function resolveColor(cssVar){
+    const name = cssVar.replace("var(","").replace(")","").trim();
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  // ---------------- DOM refs ----------------
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  const pm25Val = document.getElementById('pm25Val');
+  const pm10Val = document.getElementById('pm10Val');
+  const pm1Val = document.getElementById('pm1Val');
+  const pm25Tag = document.getElementById('pm25Tag');
+  const pm10Tag = document.getElementById('pm10Tag');
+  const pm25Card = document.getElementById('pm25Card');
+  const pm10Card = document.getElementById('pm10Card');
+  const ageText = document.getElementById('ageText');
+  const logCount = document.getElementById('logCount');
+  const exportBtn = document.getElementById('exportBtn');
+
+  function setStatus(state, text){
+    statusDot.className = 'dot' + (state ? ' ' + state : '');
+    statusText.textContent = text;
+  }
+
+  // ---------------- Firebase init ----------------
+  let db = null;
+  if(isConfigured){
+    try{
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.database();
+      setStatus('', 'Waiting for device…');
+    }catch(e){
+      console.error(e);
+      setStatus('err', 'Firebase init failed');
+    }
+  }else{
+    setStatus('err', 'Firebase not configured');
+  }
+
+  // ---------------- Live readout ----------------
+  let lastReadingTs = null;
+
+  function updateAgeText(){
+    if(lastReadingTs === null) return;
+    const secs = Math.round((Date.now() - lastReadingTs) / 1000);
+    let ageStr;
+    if(secs < 60) ageStr = secs + 's ago';
+    else if(secs < 3600) ageStr = Math.round(secs/60) + 'm ago';
+    else ageStr = Math.round(secs/3600) + 'h ago';
+    ageText.textContent = 'Last reading: ' + ageStr;
+
+    if(secs > 90){
+      setStatus('err', 'Device offline');
+    }else{
+      setStatus('live', 'Live');
+    }
+  }
+  setInterval(updateAgeText, 5000);
+
+  function updateLive(pm1, pm25, pm10, ts){
+    lastReadingTs = ts;
+    updateAgeText();
+
+    pm1Val.textContent = pm1 === null || pm1 === undefined ? '—' : pm1;
+    pm25Val.textContent = pm25;
+    pm10Val.textContent = pm10;
+
+    const c25 = classify(pm25, PM25_BREAKS);
+    const c10 = classify(pm10, PM10_BREAKS);
+    pm25Tag.textContent = c25.label;
+    pm25Tag.style.color = c25.color;
+    pm25Tag.style.background = 'color-mix(in srgb, ' + c25.color + ' 22%, transparent)';
+    pm25Card.style.borderLeft = '4px solid ' + resolveColor(c25.color);
+
+    pm10Tag.textContent = c10.label;
+    pm10Tag.style.color = c10.color;
+    pm10Tag.style.background = 'color-mix(in srgb, ' + c10.color + ' 22%, transparent)';
+    pm10Card.style.borderLeft = '4px solid ' + resolveColor(c10.color);
+  }
+
+  if(db){
+    db.ref('current').on('value', (snap) => {
+      const v = snap.val();
+      if(!v) return;
+      updateLive(v.pm1, v.pm25, v.pm10, v.ts);
+    }, (err) => {
+      console.error(err);
+      setStatus('err', 'Read blocked (check DB rules)');
+    });
+  }
+
+  // ---------------- Recent-readings trace ----------------
+  const traceCanvas = document.getElementById('trace');
+  const traceCtx = traceCanvas.getContext('2d');
+  const MAX_TRACE_POINTS = 30;
+  let trace25 = [], trace10 = [];
+
+  function fitCanvas(canvas){
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    return { w: rect.width, h: rect.height };
+  }
+
+  function drawLine(ctx, data, w, h, maxVal, color, lineWidth){
+    if(data.length < 2) return;
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.lineJoin = 'round';
+    const stepX = w / (MAX_TRACE_POINTS - 1);
+    const offset = MAX_TRACE_POINTS - data.length;
+    data.forEach((v, i) => {
+      const x = (offset + i) * stepX;
+      const y = h - (Math.min(v, maxVal) / maxVal) * (h - 10) - 5;
+      if(i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  function drawTrace(){
+    const { w, h } = fitCanvas(traceCanvas);
+    traceCtx.clearRect(0, 0, w, h);
+    traceCtx.strokeStyle = 'rgba(255,255,255,0.06)';
+    traceCtx.lineWidth = 1;
+    for(let i=1; i<4; i++){
+      const y = (h/4)*i;
+      traceCtx.beginPath(); traceCtx.moveTo(0,y); traceCtx.lineTo(w,y); traceCtx.stroke();
+    }
+    const maxVal = Math.max(50, ...trace25, ...trace10) * 1.15;
+    drawLine(traceCtx, trace10, w, h, maxVal, '#5b7fff', 1.6);
+    drawLine(traceCtx, trace25, w, h, maxVal, resolveColor('var(--accent)'), 2);
+  }
+  window.addEventListener('resize', drawTrace);
+  drawTrace();
+
+  // Populate the recent-readings trace from the last N history entries
+  if(db){
+    db.ref('history').orderByChild('ts').limitToLast(MAX_TRACE_POINTS).on('value', (snap) => {
+      const items = [];
+      snap.forEach(child => items.push(child.val()));
+      items.sort((a,b) => a.ts - b.ts);
+      trace25 = items.map(p => p.pm25);
+      trace10 = items.map(p => p.pm10);
+      drawTrace();
+    });
+  }
+
+  // ---------------- History chart ----------------
+  const histCanvas = document.getElementById('histChart');
+  const histCtx = histCanvas.getContext('2d');
+  const histEmpty = document.getElementById('histEmpty');
+  const rangeToggle = document.getElementById('rangeToggle');
+  let currentRangeDays = 1;
+
+  rangeToggle.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if(!btn) return;
+    [...rangeToggle.children].forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentRangeDays = parseInt(btn.dataset.range, 10);
+    refreshHistory();
+  });
+
+  function avg(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
+
+  async function loadPointsForRange(days){
+    if(!db) return [];
+    let query = db.ref('history').orderByChild('ts');
+    if(days > 0){
+      const cutoff = Date.now() - days * 24 * 3600 * 1000;
+      query = query.startAt(cutoff);
+    }
+    const snap = await query.once('value');
+    const points = [];
+    snap.forEach(child => points.push(child.val()));
+    points.sort((a,b) => a.ts - b.ts);
+    return points;
+  }
+
+  async function refreshHistory(){
+    const points = await loadPointsForRange(currentRangeDays);
+    logCount.textContent = points.length + ' point' + (points.length===1?'':'s') + ' logged';
+
+    if(points.length === 0){
+      histEmpty.style.display = 'block';
+      histCanvas.style.display = 'none';
+      document.getElementById('statAvg25').textContent = '—';
+      document.getElementById('statMax25').textContent = '—';
+      document.getElementById('statAvg10').textContent = '—';
+      document.getElementById('statMax10').textContent = '—';
+      window._lastHistPoints = [];
+      return;
+    }
+    histEmpty.style.display = 'none';
+    histCanvas.style.display = 'block';
+    drawHistChart(points);
+
+    const pm25s = points.map(p=>p.pm25), pm10s = points.map(p=>p.pm10);
+    document.getElementById('statAvg25').textContent = avg(pm25s).toFixed(1);
+    document.getElementById('statMax25').textContent = Math.max(...pm25s).toFixed(1);
+    document.getElementById('statAvg10').textContent = avg(pm10s).toFixed(1);
+    document.getElementById('statMax10').textContent = Math.max(...pm10s).toFixed(1);
+
+    window._lastHistPoints = points;
+  }
+
+  function drawHistChart(points){
+    const { w, h } = fitCanvas(histCanvas);
+    histCtx.clearRect(0,0,w,h);
+    const padL = 34, padB = 20, padT = 10;
+    const plotW = w - padL - 10, plotH = h - padB - padT;
+
+    const maxVal = Math.max(50, ...points.map(p=>p.pm25), ...points.map(p=>p.pm10)) * 1.15;
+    const minT = points[0].ts, maxT = points[points.length-1].ts;
+    const spanT = Math.max(1, maxT - minT);
+
+    histCtx.strokeStyle = 'rgba(255,255,255,0.06)';
+    histCtx.fillStyle = 'rgba(255,255,255,0.35)';
+    histCtx.font = '10px IBM Plex Mono, monospace';
+    for(let i=0;i<=3;i++){
+      const y = padT + (plotH/3)*i;
+      histCtx.beginPath(); histCtx.moveTo(padL,y); histCtx.lineTo(w-10,y); histCtx.stroke();
+      const val = Math.round(maxVal - (maxVal/3)*i);
+      histCtx.fillText(String(val), 2, y+3);
+    }
+
+    function plot(data, color, key){
+      histCtx.beginPath();
+      histCtx.strokeStyle = color;
+      histCtx.lineWidth = 1.8;
+      data.forEach((p,i) => {
+        const x = padL + ((p.ts - minT)/spanT) * plotW;
+        const y = padT + plotH - (Math.min(p[key], maxVal)/maxVal) * plotH;
+        if(i===0) histCtx.moveTo(x,y); else histCtx.lineTo(x,y);
+      });
+      histCtx.stroke();
+    }
+    plot(points, '#5b7fff', 'pm10');
+    plot(points, resolveColor('var(--accent)'), 'pm25');
+  }
+
+  window.addEventListener('resize', () => { if(window._lastHistPoints && window._lastHistPoints.length) drawHistChart(window._lastHistPoints); });
+
+  // ---------------- CSV export ----------------
+  exportBtn.addEventListener('click', async () => {
+    const points = window._lastHistPoints || await loadPointsForRange(currentRangeDays);
+    if(!points || points.length === 0){ alert('No logged data to export yet.'); return; }
+    let csv = 'timestamp,pm1,pm25,pm10\n';
+    points.forEach(p => {
+      csv += new Date(p.ts).toISOString() + ',' + (p.pm1 ?? '') + ',' + p.pm25 + ',' + p.pm10 + '\n';
+    });
+    const blob = new Blob([csv], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'airwatch_log.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // ---------------- Init ----------------
+  if(db) refreshHistory();
+})();
+</script>
+</body>
+</html>
