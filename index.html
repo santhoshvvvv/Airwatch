@@ -415,7 +415,7 @@
       drawTrace();
     });
 
-    refreshHistory();
+    startHistoryListener(currentRangeDays);
   }
 
   // ---------------- Recent-readings trace ----------------
@@ -481,27 +481,32 @@
     [...rangeToggle.children].forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentRangeDays = parseInt(btn.dataset.range, 10);
-    refreshHistory();
+    startHistoryListener(currentRangeDays);
   });
 
   function avg(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
 
-  async function loadPointsForRange(days){
-    if(!db) return [];
+  let historyQuery = null;
+
+  function startHistoryListener(days){
+    if(historyQuery){ historyQuery.off(); }
     let query = db.ref('history').orderByChild('ts');
     if(days > 0){
       const cutoff = Date.now() - days * 24 * 3600 * 1000;
       query = query.startAt(cutoff);
     }
-    const snap = await query.once('value');
-    const points = [];
-    snap.forEach(child => points.push(child.val()));
-    points.sort((a,b) => a.ts - b.ts);
-    return points;
+    historyQuery = query;
+    query.on('value', (snap) => {
+      const points = [];
+      snap.forEach(child => points.push(child.val()));
+      points.sort((a,b) => a.ts - b.ts);
+      renderHistory(points);
+    }, (err) => {
+      console.error(err);
+    });
   }
 
-  async function refreshHistory(){
-    const points = await loadPointsForRange(currentRangeDays);
+  function renderHistory(points){
     logCount.textContent = points.length + ' point' + (points.length===1?'':'s') + ' logged';
 
     if(points.length === 0){
@@ -565,8 +570,8 @@
   window.addEventListener('resize', () => { if(window._lastHistPoints && window._lastHistPoints.length) drawHistChart(window._lastHistPoints); });
 
   // ---------------- CSV export ----------------
-  exportBtn.addEventListener('click', async () => {
-    const points = window._lastHistPoints || await loadPointsForRange(currentRangeDays);
+  exportBtn.addEventListener('click', () => {
+    const points = window._lastHistPoints;
     if(!points || points.length === 0){ alert('No logged data to export yet.'); return; }
     let csv = 'timestamp,pm1,pm25,pm10\n';
     points.forEach(p => {
