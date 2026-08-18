@@ -121,6 +121,26 @@
 
   footer{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:12px;}
   footer button{font-size:12px;padding:7px 12px;}
+
+  .login-overlay{
+    position:fixed;inset:0;background:rgba(10,12,15,0.92);
+    display:flex;align-items:center;justify-content:center;z-index:1000;
+    padding:20px;
+  }
+  .login-box{
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:28px 26px;width:100%;max-width:320px;display:flex;flex-direction:column;gap:12px;
+  }
+  .login-box .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.18em;color:var(--accent);text-transform:uppercase;}
+  .login-box h2{margin:0 0 6px;font-size:19px;font-weight:700;}
+  .login-box input{
+    font-family:'Inter',sans-serif;font-size:14px;padding:10px 12px;border-radius:8px;
+    border:1px solid var(--line);background:var(--panel-2);color:var(--text);outline:none;
+  }
+  .login-box input:focus{border-color:var(--accent);}
+  .login-box button{margin-top:4px;}
+  .login-error{color:var(--unhealthy);font-size:12.5px;min-height:16px;}
+  .signed-in-hidden{display:none !important;}
 </style>
 </head>
 <body>
@@ -134,6 +154,17 @@
     </div>
     <div class="status-pill"><span class="dot" id="statusDot"></span><span id="statusText">Connecting to Firebase…</span></div>
   </header>
+
+  <div id="loginOverlay" class="login-overlay">
+    <div class="login-box">
+      <span class="eyebrow">Sign in</span>
+      <h2>Access your dashboard</h2>
+      <input type="email" id="loginEmail" placeholder="Email" autocomplete="username">
+      <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password">
+      <button class="primary" id="loginBtn">Sign in</button>
+      <div class="login-error" id="loginError"></div>
+    </div>
+  </div>
 
   <div class="notice warn" id="configNotice" style="display:none">
     <b>Setup needed:</b> open this file and fill in the <code>firebaseConfig</code> object near the top of the
@@ -195,7 +226,10 @@
 
   <footer>
     <span id="logCount">0 points logged</span>
-    <button id="exportBtn">Export CSV</button>
+    <div style="display:flex;gap:8px;">
+      <button id="exportBtn">Export CSV</button>
+      <button id="signOutBtn">Sign out</button>
+    </div>
   </footer>
 
 </div>
@@ -203,6 +237,7 @@
 <!-- Firebase (compat build - simplest to use with no build step, works fine on GitHub Pages) -->
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
 
 <script>
 (function(){
@@ -268,19 +303,56 @@
     statusText.textContent = text;
   }
 
-  // ---------------- Firebase init ----------------
+  // ---------------- Firebase init + email/password login ----------------
   let db = null;
+  const loginOverlay = document.getElementById('loginOverlay');
+  const loginEmail = document.getElementById('loginEmail');
+  const loginPassword = document.getElementById('loginPassword');
+  const loginBtn = document.getElementById('loginBtn');
+  const loginError = document.getElementById('loginError');
+
+  function attemptLogin(){
+    loginError.textContent = '';
+    const email = loginEmail.value.trim();
+    const pass = loginPassword.value;
+    if(!email || !pass){ loginError.textContent = 'Enter both email and password.'; return; }
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Signing in…';
+    firebase.auth().signInWithEmailAndPassword(email, pass)
+      .catch((err) => {
+        loginError.textContent = err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found'
+          ? 'Incorrect email or password.' : err.message;
+      })
+      .finally(() => {
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Sign in';
+      });
+  }
+  loginBtn.addEventListener('click', attemptLogin);
+  loginPassword.addEventListener('keydown', (e) => { if(e.key === 'Enter') attemptLogin(); });
+
   if(isConfigured){
     try{
       firebase.initializeApp(firebaseConfig);
       db = firebase.database();
-      setStatus('', 'Waiting for device…');
+
+      firebase.auth().onAuthStateChanged((user) => {
+        if(user){
+          loginOverlay.style.display = 'none';
+          setStatus('', 'Waiting for device…');
+          attachListeners();
+        }else{
+          loginOverlay.style.display = 'flex';
+          setStatus('', 'Signed out');
+        }
+      });
     }catch(e){
       console.error(e);
       setStatus('err', 'Firebase init failed');
     }
   }else{
     setStatus('err', 'Firebase not configured');
+    loginOverlay.style.display = 'none';
   }
 
   // ---------------- Live readout ----------------
@@ -324,7 +396,7 @@
     pm10Card.style.borderLeft = '4px solid ' + resolveColor(c10.color);
   }
 
-  if(db){
+  function attachListeners(){
     db.ref('current').on('value', (snap) => {
       const v = snap.val();
       if(!v) return;
@@ -333,6 +405,17 @@
       console.error(err);
       setStatus('err', 'Read blocked (check DB rules)');
     });
+
+    db.ref('history').orderByChild('ts').limitToLast(MAX_TRACE_POINTS).on('value', (snap) => {
+      const items = [];
+      snap.forEach(child => items.push(child.val()));
+      items.sort((a,b) => a.ts - b.ts);
+      trace25 = items.map(p => p.pm25);
+      trace10 = items.map(p => p.pm10);
+      drawTrace();
+    });
+
+    refreshHistory();
   }
 
   // ---------------- Recent-readings trace ----------------
@@ -383,17 +466,7 @@
   window.addEventListener('resize', drawTrace);
   drawTrace();
 
-  // Populate the recent-readings trace from the last N history entries
-  if(db){
-    db.ref('history').orderByChild('ts').limitToLast(MAX_TRACE_POINTS).on('value', (snap) => {
-      const items = [];
-      snap.forEach(child => items.push(child.val()));
-      items.sort((a,b) => a.ts - b.ts);
-      trace25 = items.map(p => p.pm25);
-      trace10 = items.map(p => p.pm10);
-      drawTrace();
-    });
-  }
+  // Recent-readings trace and history are populated once auth completes (see attachListeners above)
 
   // ---------------- History chart ----------------
   const histCanvas = document.getElementById('histChart');
@@ -507,8 +580,13 @@
     URL.revokeObjectURL(url);
   });
 
+  // ---------------- Sign out ----------------
+  document.getElementById('signOutBtn').addEventListener('click', () => {
+    firebase.auth().signOut();
+  });
+
   // ---------------- Init ----------------
-  if(db) refreshHistory();
+  // (history/live listeners are started inside attachListeners(), once you sign in above)
 })();
 </script>
 </body>
