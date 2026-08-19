@@ -337,7 +337,6 @@
       db = firebase.database();
 
       firebase.auth().onAuthStateChanged((user) => {
-        console.log('[DEBUG] onAuthStateChanged fired, user =', user ? user.email : null);
         if(user){
           loginOverlay.style.display = 'none';
           setStatus('', 'Waiting for device…');
@@ -398,7 +397,6 @@
   }
 
   function attachListeners(){
-    console.log('[DEBUG] attachListeners() called');
     db.ref('current').on('value', (snap) => {
       const v = snap.val();
       if(!v) return;
@@ -488,32 +486,33 @@
 
   function avg(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
 
-  let historyQuery = null;
+  let historyRefreshTimer = null;
 
-  function startHistoryListener(days){
-    console.log('[DEBUG] startHistoryListener called with days =', days);
-    if(historyQuery){ historyQuery.off(); }
+  async function loadHistory(days){
+    if(!db) return;
     let query = db.ref('history').orderByChild('ts');
     if(days > 0){
       const cutoff = Date.now() - days * 24 * 3600 * 1000;
       query = query.startAt(cutoff);
-      console.log('[DEBUG] using cutoff', cutoff, new Date(cutoff).toString());
     }
-    historyQuery = query;
-    query.on('value', (snap) => {
-      console.log('[DEBUG] history snapshot received, numChildren =', snap.numChildren());
+    try{
+      const snap = await query.once('value');
       const points = [];
-      snap.forEach(child => points.push(child.val()));
+      snap.forEach(child => { points.push(child.val()); return false; });
       points.sort((a,b) => a.ts - b.ts);
-      console.log('[DEBUG] calling renderHistory with', points.length, 'points');
       renderHistory(points);
-    }, (err) => {
-      console.error('[DEBUG] history query ERROR:', err);
-    });
+    }catch(err){
+      console.error('loadHistory failed:', err);
+    }
+  }
+
+  function startHistoryListener(days){
+    loadHistory(days);
+    if(historyRefreshTimer) clearInterval(historyRefreshTimer);
+    historyRefreshTimer = setInterval(() => loadHistory(currentRangeDays), 30000);
   }
 
   function renderHistory(points){
-    console.log('[DEBUG] renderHistory running with', points.length, 'points');
     logCount.textContent = points.length + ' point' + (points.length===1?'':'s') + ' logged';
 
     if(points.length === 0){
@@ -577,9 +576,25 @@
   window.addEventListener('resize', () => { if(window._lastHistPoints && window._lastHistPoints.length) drawHistChart(window._lastHistPoints); });
 
   // ---------------- CSV export ----------------
-  exportBtn.addEventListener('click', () => {
-    const points = window._lastHistPoints;
-    if(!points || points.length === 0){ alert('No logged data to export yet.'); return; }
+  exportBtn.addEventListener('click', async () => {
+    exportBtn.disabled = true;
+    exportBtn.textContent = 'Loading…';
+    let query = db.ref('history').orderByChild('ts');
+    if(currentRangeDays > 0){
+      query = query.startAt(Date.now() - currentRangeDays * 24 * 3600 * 1000);
+    }
+    let points = [];
+    try{
+      const snap = await query.once('value');
+      snap.forEach(child => { points.push(child.val()); return false; });
+      points.sort((a,b) => a.ts - b.ts);
+    }catch(err){
+      console.error(err);
+    }
+    exportBtn.disabled = false;
+    exportBtn.textContent = 'Export CSV';
+
+    if(points.length === 0){ alert('No logged data to export yet.'); return; }
     let csv = 'timestamp,pm1,pm25,pm10\n';
     points.forEach(p => {
       csv += new Date(p.ts).toISOString() + ',' + (p.pm1 ?? '') + ',' + p.pm25 + ',' + p.pm10 + '\n';
