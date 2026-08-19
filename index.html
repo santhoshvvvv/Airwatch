@@ -337,6 +337,7 @@
       db = firebase.database();
 
       firebase.auth().onAuthStateChanged((user) => {
+        console.log('[DEBUG] onAuthStateChanged fired, user =', user ? user.email : null);
         if(user){
           loginOverlay.style.display = 'none';
           setStatus('', 'Waiting for device…');
@@ -397,6 +398,7 @@
   }
 
   function attachListeners(){
+    console.log('[DEBUG] attachListeners() called');
     db.ref('current').on('value', (snap) => {
       const v = snap.val();
       if(!v) return;
@@ -489,24 +491,29 @@
   let historyQuery = null;
 
   function startHistoryListener(days){
+    console.log('[DEBUG] startHistoryListener called with days =', days);
     if(historyQuery){ historyQuery.off(); }
     let query = db.ref('history').orderByChild('ts');
     if(days > 0){
       const cutoff = Date.now() - days * 24 * 3600 * 1000;
       query = query.startAt(cutoff);
+      console.log('[DEBUG] using cutoff', cutoff, new Date(cutoff).toString());
     }
     historyQuery = query;
     query.on('value', (snap) => {
+      console.log('[DEBUG] history snapshot received, numChildren =', snap.numChildren());
       const points = [];
       snap.forEach(child => points.push(child.val()));
       points.sort((a,b) => a.ts - b.ts);
+      console.log('[DEBUG] calling renderHistory with', points.length, 'points');
       renderHistory(points);
     }, (err) => {
-      console.error(err);
+      console.error('[DEBUG] history query ERROR:', err);
     });
   }
 
   function renderHistory(points){
+    console.log('[DEBUG] renderHistory running with', points.length, 'points');
     logCount.textContent = points.length + ' point' + (points.length===1?'':'s') + ' logged';
 
     if(points.length === 0){
@@ -590,7 +597,7 @@
     firebase.auth().signOut();
   });
 
-  // ---------------- Init -------------------
+  // ---------------- Init ----------------
   // (history/live listeners are started inside attachListeners(), once you sign in above)
 })();
 </script>
